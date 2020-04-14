@@ -17,9 +17,10 @@
       <div class="button-box">
         <el-button type="success" @click="editHandleClick">预览</el-button>
         <el-button type="warning" @click="isFormat = !isFormat">切换格式</el-button>
-        <el-button type="primary" @click="changeData">选择数据</el-button>
         <el-button type="primary" @click="openTemplateProgram">模板管理</el-button>
-        <el-button @click="handleSave">保存</el-button>
+        <el-button type="primary" @click="openDataProgram">数据管理</el-button>
+        <el-button @click="handleSaveTemplate">保存模板</el-button>
+        <el-button @click="handleSaveData">保存数据</el-button>
       </div>
       <running-temp class="box-item" :run-value="newCode" ref="runTemp"></running-temp>
     </div>
@@ -38,7 +39,7 @@
           <el-button slot="append" icon="el-icon-search" style="padding:12px 30px" @click="handleSearch"></el-button>
         </el-input>
       </div>
-      <el-table :data="tableData" height="400px" class="table">
+      <el-table :data="tableData" height="400px" class="table" v-loading="loading">
         <el-table-column prop="id" label="ID"></el-table-column>
         <el-table-column prop="templateName" label="模板标题" width="200px"></el-table-column>
         <el-table-column prop="systemName" label="所属系统"></el-table-column>
@@ -66,37 +67,51 @@
         <el-pagination
         background
         layout="prev, pager, next"
-        :total="totalPage"
+        :pager-count="5"
+        :page-size="5"
+        :total="total"
+        :current-page.sync="currentPage"
         @current-change="pageChange">
       </el-pagination>
       </div>
       <span slot="footer" class="dialog-footer">
-        <el-button type="primary" plain id="fileImport" @click="clickLoad">本地模板</el-button>
+        <el-button type="primary" plain id="fileImport" @click="handleSaveNewTemplate">保存为新模板</el-button>
+        <el-button type="success" id="fileImport" @click="clickLoad">导入本地模板</el-button>
         <input type="file" id="files" ref="refFile" style="display: none" accept=".txt" @change="fileLoad">
-        <el-button type="primary" @click="this.dialogVisible = false">取 消</el-button>
+        <el-button type="primary" @click="dialogVisible = false">取 消</el-button>
       </span>
     </el-dialog>
     <!-- 选择数据弹窗 -->
-    <el-dialog title="选择数据" :visible.sync="dialogVisible2" width="1100px">
+    <el-dialog title="选择数据" :visible.sync="dialogVisible2" width="900px">
       <div class="search-box">
-        <el-input placeholder="请输入搜索内容" v-model="search" class="input-with-select">
+        <el-input placeholder="请输入ID搜索" v-model="dataSearch" class="input-with-select">
           <el-button slot="append" icon="el-icon-search" style="padding:12px 30px"></el-button>
         </el-input>
       </div>
       <el-table 
-      :data="tableData2.filter(data => !search || data.name.toLowerCase().includes(search.toLowerCase()))"
+      :data="dataList.filter(data => !dataSearch || data.id == dataSearch)"
       height="300px" 
       class="table">
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <el-form label-position="left" inline class="demo-table-expand">
+              <el-form-item>
+                <span>{{ props.row.mockData }}</span>
+              </el-form-item>
+            </el-form>
+          </template>
+        </el-table-column>
         <el-table-column prop="id" label="ID"></el-table-column>
-        <el-table-column prop="title" label="数据标题" width="200px"></el-table-column>
-        <el-table-column prop="value" label="xxxx"></el-table-column>
+        <el-table-column prop="modifyTime" label="更新时间" width="200px"></el-table-column>
         <el-table-column label="操作" align="center">
           <template slot-scope="scope">
             <el-button size="small" type="success" @click="handleSelectData(scope.$index,scope.row)">选择</el-button>
+            <el-button size="small" type="danger" @click="handleDeleteData(scope.$index,scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
       <span slot="footer" class="dialog-footer">
+        <el-button type="primary" plain @click="handleAddData()">保存为新数据</el-button>
         <el-button type="primary" @click="dialogVisible2 = false">取 消</el-button>
       </span>
     </el-dialog>
@@ -147,15 +162,18 @@ export default {
   },
   data() {
     return {
+      loading: false,
       file: '', // 本地模板文件
       tableData: [], // 搜索结果
-      tableData2: [],
+      dataList: [], // 当前模板对应的数据列表
       form: {}, // 编辑模板表单
       targetTemplate: {}, // 当前选择的模板
+      targetDataId: '', // 当前选择的数据ID
       select: [], // 模板系统列表
       select: '', // 选择模板所属系统
       currentRow: null,
       search: "", // 模板搜索
+      dataSearch: '', // 模板数据搜索
       dialogVisible: false, // 模板弹窗
       dialogVisible2: false, // 数据弹窗
       dialogVisible3: false, // 编辑弹窗
@@ -164,16 +182,17 @@ export default {
       isRun: false,
       code: "",
       data: "",
-      newData: "", // 修改的数据
-      newCode: "", // 修改的模板
-      noDataCode: "", // 没有data的模板
+      newData: "", // 修改的数据(保存数据时使用)
+      newCode: "", // 修改的模板(含数据)
+      noDataCode: "", // 没有data的模板(保存模板时使用)
       CodeMirrorEditor: "",
       flag: 1, // 替换数据标识
       middleData: "", // edit子组件修改数据后的过度值
       isShowEdit: false, // 获取到数据后再调用子组件
       value: "",
       isEdit: false, // 判断是否是编辑模板
-      totalPage: 1,
+      total: 1,
+      currentPage: 1,
       rules: {
         moduleName: [
           { required: true, message: '所属模块不能为空', tirgger: 'blur'}
@@ -191,17 +210,23 @@ export default {
       this.newData = this.data;
       // this.code = temp;
     });
-    await request({
-        url: '/sys/system/getTemplateSystemByType?type=2',
-        method: 'get'
-      }).then(res => {
-        console.log('【获取的系统列表】',res.data.body.data);
-        this.options = res.data.body.data
-      })
+    try{
+      await request({
+          url: '/sys/system/getTemplateSystemByType?type=2',
+          method: 'get'
+        }).then(res => {
+          console.log('【获取的系统列表】',res.data.body.data);
+          this.options = res.data.body.data
+        })
+    }catch(err){
+      this.$message.warning('连接超时，当前为离线模式')
+    }
     this.isShowEdit = true;
     this.setMirror();
   },
-  created() {},
+  created() {
+    this.isShowEdit = true;
+  },
   watch: {
     newData(val1) {
       if (this.flag) {
@@ -248,22 +273,47 @@ export default {
     format(str) {
       return formatData.formatData.format(str);
     },
-    // edit子组件预览
+    // 调用edit子组件预览方法
     editHandleClick() {
       this.$refs.edit.handleClick();
       this.isRun = true;
     },
-    // runTemp子组件获取文本
-    runGetText() {
-      const data = this.$refs.runTemp.getText();
-      this.result = data;
-      console.log("【data】", data);
+    // 调用runTemp子组件获取文本方法
+    // runGetText() {
+    //   const data = this.$refs.runTemp.getText();
+    //   this.result = data;
+    //   console.log("【data】", data);
+    // },
+    // 保存数据
+    async handleSaveData(){
+      // 判断是否选择数据 没有选择就新增数据
+      if(this.targetDataId == ''){
+        this.handleAddData()
+        return
+      }
+      await request({
+        url: '/template/mock/updateTemplateMock',
+        method: 'post',
+        data: {
+          id: this.targetDataId,
+          mockData: this.newData
+        }
+      }).then(res => {
+        if(res.status == 200){
+          this.$message.success('保存数据成功')
+        }
+      })
     },
     // 保存模板
-    handleSave() {
+    handleSaveTemplate() {
       this.form = this.targetTemplate
       this.form.templateData = this.noDataCode
       console.log('【保存的模板】', this.noDataCode);
+      this.dialogVisible3 = true
+    },
+    // 保存为新模板
+    handleSaveNewTemplate(){
+      this.form.templateData = this.noDataCode
       this.dialogVisible3 = true
     },
     // 关闭模板管理弹窗
@@ -289,6 +339,7 @@ export default {
     },
     // 打开模板管理窗口
     async openTemplateProgram(){
+      this.loading = true
       this.dialogVisible = !this.dialogVisible
       // 如果存在搜索记录 按照搜索记录渲染列表
       if(this.search != '' || this.select != ''){
@@ -305,12 +356,16 @@ export default {
       }).then(res => {
         console.log('【默认模板列表】',res.data.body.data.list);
         this.tableData = res.data.body.data.list
-        this.totalPage = res.data.body.data.pages
+        this.total = parseInt(res.data.body.data.total)
+        this.loading = false
+      }).catch(() =>{
+        this.loading = false
       })
       }
     },
     // 搜索模板
     async handleSearch(){
+      this.loading = true
       await request({
         url: '/template/getTemplateList',
         method: 'get',
@@ -321,12 +376,17 @@ export default {
           pageSize: 5
         }
       }).then(res => {
+        this.currentPage = 1
         this.tableData = res.data.body.data.list
+        this.total = parseInt(res.data.body.data.total)
+        this.loading = false
+      }).catch(() =>{
+        this.loading = false
       })
     },
     // 切换页码
     async pageChange(page){
-      console.log(page);
+      this.loading = true
       await request({
         url: '/template/getTemplateList',
         method: 'get',
@@ -338,6 +398,7 @@ export default {
         }
       }).then(res => {
         this.tableData = res.data.body.data.list
+        this.loading = false
       })
     },
     // 选择模板 获取模板内容
@@ -380,7 +441,7 @@ export default {
             url: '/template/saveTemplate',
             method: 'post',
             data: this.form
-            }).then(res => {s
+            }).then(res => {
               this.dialogVisible3 = false
               this.$message.success('修改模板成功')
             })
@@ -437,9 +498,64 @@ export default {
         this.tableData.splice(index,1)
       })
     },
-    // 选择样例数据
-    changeData(){
+    // 打开数据管理窗口
+    async openDataProgram(){
+      if(!this.targetTemplate.id){
+        this.$message.warning('请先选择模板')
+        return
+      }
+      await request({
+        url: '/template/mock/getTemplateMockByTemplateId',
+        method: 'get',
+        params: {
+          templateId: this.targetTemplate.id
+        }
+        }).then(res => {
+          this.dataList = res.data.body.data
+          console.log('【模板数据列表】', this.dataList);
+        })
       this.dialogVisible2 = true
+    },
+    // 选择数据
+    handleSelectData(index, row){
+      this.CodeMirrorEditor.setValue(row.mockData)
+      this.targetDataId = row.id
+      this.dialogVisible2 = false
+    },
+    async handleDeleteData(index, row){
+      await request({
+        url: '/template/mock/deleteTemplateMock?',
+        method: 'get',
+        data: {
+          templateId: row.id
+        }
+      }).then(res => {
+        if(res.status == 200){
+          this.$message.success('删除数据成功')
+          const index = this.dataList.findIndex(item => item.id == row.id)
+          this.dataList.splice(index,1)
+        }
+      })
+    },
+    // 新增数据
+    async handleAddData(){
+      if(!this.targetTemplate.id){
+        this.$message.warning('请先选择模板')
+        return
+      }
+      await request({
+        url: '/template/mock/insertTemplateMock',
+        method: 'post',
+        data: {
+          templateId: this.targetTemplate.id,
+          mockData: this.newData
+        }
+      }).then(res => {
+        if(res.status == 200){
+          this.$message.success('新增数据成功')
+          this.dialogVisible2 = false
+        }
+      })
     },
     clickLoad() {
       this.$refs.refFile.dispatchEvent(new MouseEvent('click'))

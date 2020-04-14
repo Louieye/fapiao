@@ -6,7 +6,7 @@ import App from './App'
 import router from './router'
 import Toast from '@/base/toast/index'
 import axios from 'axios'
-import { Button, Collapse, CollapseItem, Option, Dialog, Input, Select, Table, TableColumn, Upload, Message, MessageBox, Tag, Form, FormItem, Pagination } from 'element-ui'
+import { Button, Collapse, CollapseItem, Option, Dialog, Input, Select, Table, TableColumn, Upload, Message, MessageBox, Tag, Form, FormItem, Pagination, Loading } from 'element-ui'
 Vue.use(Button)
 Vue.use(Collapse)
 Vue.use(CollapseItem)
@@ -21,6 +21,7 @@ Vue.use(Tag)
 Vue.use(Form)
 Vue.use(FormItem)
 Vue.use(Pagination)
+Vue.use(Loading.directive);
 Vue.prototype.$message = Message;
 Vue.prototype.$confirm = MessageBox.confirm;
 
