@@ -350,7 +350,7 @@ export default {
         url: '/template/getTemplateList',
         method: 'get',
         params: {
-          pageNum: 1,
+          pageNum: this.currentPage,
           pageSize: 5
         }
       }).then(res => {
